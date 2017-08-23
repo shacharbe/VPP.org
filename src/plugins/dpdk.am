@@ -25,6 +25,10 @@ endif
 if WITH_DPDK_AESNI_GCM_PMD
 dpdk_plugin_la_LDFLAGS += -Wl,--exclude-libs,libisal_crypto.a,-l:libisal_crypto.a
 endif
+if WITH_DPDK_MLX5_PMD
+dpdk_plugin_la_LDFLAGS += -Wl,--exclude-libs,libibverbs.a,-l:libibverbs.a
+dpdk_plugin_la_LDFLAGS += -Wl,--exclude-libs,libmlx5.a,-l:libmlx5.a
+endif
 dpdk_plugin_la_LDFLAGS += -Wl,-lm,-ldl
 if WITH_DPDK_MLX5_PMD
 dpdk_plugin_la_LDFLAGS += -Wl,-libverbs

@@ -51,6 +51,14 @@ ISA_L_CRYPTO_LIB_TARBALL_URL := http://github.com/01org/isa-l_crypto/archive/$(I
 ISA_L_CRYPTO_LIB_SOURCE := $(B)/isa-l_crypto-$(ISA_L_CRYPTO_VER)
 ISA_L_CRYPTO_INSTALL_DIR := $(ISA_L_CRYPTO_LIB_SOURCE)/install
 
+IBVERBS := libibverbs-*
+IBVERBS_LIB_TARBALL := $(IBVERBS).tar.gz
+IBVERBS_LIB_TARBALL_URL := http://linux.mellanox.com/public/repo/mlnx_ofed/latest/SRPMS/
+
+MLX5 := libmlx5-*
+MLX5_LIB_TARBALL := $(MLX5).tar.gz
+MLX5_LIB_TARBALL_URL := http://linux.mellanox.com/public/repo/mlnx_ofed/latest/SRPMS/
+
 ifneq (,$(findstring clang,$(CC)))
 DPDK_CC=clang
 else ifneq (,$(findstring icc,$(CC)))
@@ -182,10 +190,30 @@ $(CURDIR)/$(ISA_L_CRYPTO_LIB_TARBALL):
 		else curl -o $@ -LO $(ISA_L_CRYPTO_LIB_TARBALL_URL) ; \
 	fi
 
+$(CURDIR)/$(IBVERBS_LIB_TARBALL):
+	@if [ -e $(DPDK_DOWNLOAD_DIR)/$(IBVERBS_LIB_TARBALL) ] ; \
+                then cp $(DPDK_DOWNLOAD_DIR)/$(IBVERBS_LIB_TARBALL) $(CURDIR) ; \
+                else wget -nd -r -l1 -A $(IBVERBS_LIB_TARBALL) $(IBVERBS_LIB_TARBALL_URL) ; \
+			tar -xvzf $(IBVERBS_LIB_TARBALL) ; \
+			IBVERBS_LIB_SOURCE=$(ls *.tar.gz | grep libibverbs | cut -d"." -f1); \
+			IBVERBS_INSTALL_DIR=$(IBVERBS_LIB_SOURCE)/installl; \
+        fi
+
+$(CURDIR)/$(MLX5_LIB_TARBALL):
+	@if [ -e $(DPDK_DOWNLOAD_DIR)/$(MLX5_LIB_TARBALL) ] ; \
+                then cp $(DPDK_DOWNLOAD_DIR)/$(MLX5_LIB_TARBALL) $(CURDIR) ; \
+                else wget -nd -r -l1 -A $(MLX5_LIB_TARBALL) $(MLX5_LIB_TARBALL_URL) ; \
+			tar -xvzf $(MLX5_LIB_TARBALL) ; \
+			MLX5_LIB_SOURCE=$(ls *.tar.gz | grep libmlx5 | cut -d"." -f1) ; \
+			MLX5_INSTALL_DIR=$(MLX5_LIB_SOURCE)/install; \
+        fi
+
 DPDK_DOWNLOADS = $(CURDIR)/$(DPDK_TARBALL)
 ifeq ($(AESNI),y)
 DPDK_DOWNLOADS += $(CURDIR)/$(AESNIMB_LIB_TARBALL)
 DPDK_DOWNLOADS += $(CURDIR)/$(ISA_L_CRYPTO_LIB_TARBALL)
+DPDK_DOWNLOADS += $(CURDIR)/$(IBVERBS_LIB_TARBALL)
+DPDK_DOWNLOADS += $(CURDIR)/$(MLX5_LIB_TARBALL)
 endif
 
 $(B)/.download.ok: $(DPDK_DOWNLOADS)
@@ -235,9 +263,9 @@ config: $(B)/.config.ok
 
 # Order matters
 ifeq ($(AESNI),y)
-BUILD_TARGETS += build-ipsec-mb build-isal-crypto build-dpdk
+BUILD_TARGETS += build-ipsec-mb build-isal-crypto build-ibverbs build-mlx5 build-dpdk
 else
-BUILD_TARGETS += build-dpdk
+BUILD_TARGETS += build-ibverbs build-mlx5 build-dpdk
 endif
 
 .PHONY: build-ipsec-mb
@@ -254,6 +282,24 @@ build-isal-crypto:
 	  --libdir=$(ISA_L_CRYPTO_INSTALL_DIR)/lib CFLAGS='-fPIC -DPIC -O2'
 	make -C $(ISA_L_CRYPTO_LIB_SOURCE) -j install
 	cp $(ISA_L_CRYPTO_INSTALL_DIR)/lib/libisal_crypto.a $(I)/lib/
+
+.PHONY: build-ibverbs
+build-ibverbs:
+	mkdir -p $(I)/lib/
+	cd $(IBVERBS_LIB_SOURCE) && \
+          ./configure --prefix=$(IBVERBS_INSTALL_DIR) \
+          --libdir=$(IBVERBS_INSTALL_DIR)/lib CFLAGS='-I$(IBVERBS_INSTALL_DIR)/include -fPIC -DPIC -O2'
+	make -C $(IBVERBS_LIB_SOURCE) -j install
+	cp $(IBVERBS_INSTALL_DIR)/lib/libibverbs.a $(I)/lib/
+
+.PHONY: build-mlx5
+build-mlx5:
+	mkdir -p $(I)/lib/
+	cd $(MLX5_LIB_SOURCE) && \
+          ./configure --prefix=$(MLX5_INSTALL_DIR) \
+          --libdir=$(MLX5_INSTALL_DIR)/lib CFLAGS='-I$(MLX5_INSTALL_DIR)/include -fPIC -DPIC -O2'
+	make -C $(MLX5_LIB_SOURCE) -j install
+	cp $(MLX5_INSTALL_DIR)/lib/libmlx5.a $(I)/lib/
 
 .PHONY: build-dpdk
 build-dpdk:
