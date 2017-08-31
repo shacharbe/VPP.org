@@ -27,7 +27,7 @@ dpdk_plugin_la_LDFLAGS += -Wl,--exclude-libs,libisal_crypto.a,-l:libisal_crypto.
 endif
 dpdk_plugin_la_LDFLAGS += -Wl,-lm,-ldl
 if WITH_DPDK_MLX5_PMD
-dpdk_plugin_la_LDFLAGS += -Wl,-libverbs
+dpdk_plugin_la_LDFLAGS += -Wl,-libverbs,-lmlx5
 endif
 if WITH_DPDK_MLX4_PMD
 dpdk_plugin_la_LDFLAGS += -Wl,-libverbs
