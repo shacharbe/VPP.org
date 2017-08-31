@@ -35,6 +35,21 @@ DPDK_17.08_TARBALL_MD5_CKSUM := 0641f59ea8ea98afefa7cfa2699f6241
 DPDK_SOURCE := $(B)/dpdk-$(DPDK_VERSION)
 MACHINE=$(shell uname -m)
 
+MLNX_OFED := n
+RH_OFED := 0
+
+mlnx_ofed:
+	 @if [ -f /etc/lsb-release ] || [ -f /etc/debian_version ]; then \
+                if [ $(dpkg -l | grep OFED | wc -l) -eq 0 ]; then \
+			MLNX_OFED=n ; \
+                fi ; \
+          elif [ -f /etc/redhat-release ]; then ; \
+                if[ $(rpm -qa | grep OFED | wc -l) -eq 0 ]; then ; \
+			RH_OFED=1 ;\
+                        MLNX_OFED=n ; \
+                fi ; \
+          fi
+
 ifeq ($(MACHINE),$(filter $(MACHINE),x86_64))
 AESNI := y
 else
@@ -51,6 +66,18 @@ ISA_L_CRYPTO_LIB_TARBALL_URL := http://github.com/01org/isa-l_crypto/archive/$(I
 ISA_L_CRYPTO_LIB_SOURCE := $(B)/isa-l_crypto-$(ISA_L_CRYPTO_VER)
 ISA_L_CRYPTO_INSTALL_DIR := $(ISA_L_CRYPTO_LIB_SOURCE)/install
 
+MLNX_BUILD_DIR := $(CURDIR)/mlnx_dir
+MLNX_INSTALL_DIR := $(MLNX_BUILD_DIR)/install
+MLX5_VER := 41mlnx1
+MLX5_LIB_TARBALL := libmlx5-$(MLX5_VER).tar.gz
+MLX5_LIB_TARBALL_URL :=  http://linux.mellanox.com/public/repo/mlnx_ofed/latest/SRPMS/$(MLX5_LIB_TARBALL)
+MLX5_LIB_SOURCE := $(B)/libmlx5-$(MLX5_VER)
+MLX5_INSTALL_DIR := $(MLX5_LIB_SOURCE)/install
+IBVERBS_VER := 41mlnx1
+IBVERBS_LIB_TARBALL := libibverbs-$(IBVERBS_VER).tar.gz
+IBVERBS_LIB_TARBALL_URL :=  http://linux.mellanox.com/public/repo/mlnx_ofed/latest/SRPMS/$(IBVERBS_LIB_TARBALL)
+IBVERBS_LIB_SOURCE := $(B)/libibverbs-$(IBVERBS_VER)
+IBVERBS_INSTALL_DIR := $(IBVERBS_LIB_SOURCE)/install
 ifneq (,$(findstring clang,$(CC)))
 DPDK_CC=clang
 else ifneq (,$(findstring icc,$(CC)))
@@ -100,8 +127,8 @@ else
 DPDK_EXTRA_CFLAGS := -g -O0
 endif
 
-DPDK_EXTRA_CFLAGS += -I$(ISA_L_CRYPTO_INSTALL_DIR)/include -Wl,-z,muldefs
-DPDK_EXTRA_LDFLAGS += -L$(I)/lib
+DPDK_EXTRA_CFLAGS += -I$(ISA_L_CRYPTO_INSTALL_DIR)/include -I$(IBVERBS_LIB_SOURCE)/include -I$(MLNX_INSTALL_DIR)/include -Wl,-z,muldefs
+DPDK_EXTRA_LDFLAGS += -L$(MLNX_INSTALL_DIR)/lib -L$(I)/lib
 DPDK_MAKE_EXTRA_ARGS += AESNI_MULTI_BUFFER_LIB_PATH=$(AESNIMB_LIB_SOURCE)
 
 # assemble DPDK make arguments
@@ -182,10 +209,23 @@ $(CURDIR)/$(ISA_L_CRYPTO_LIB_TARBALL):
 		else curl -o $@ -LO $(ISA_L_CRYPTO_LIB_TARBALL_URL) ; \
 	fi
 
+$(CURDIR)/$(MLX5_LIB_TARBALL):
+	@if [ -e $(DPDK_DOWNLOAD_DIR)/$(MLX5_LIB_TARBALL) ] ; \
+		then cp $(DPDK_DOWNLOAD_DIR)/$(MLX5_LIB_TARBALL) $(CURDIR) ; \
+		else curl -o $@ -LO $(MLX5_LIB_TARBALL_URL) ; \
+	fi
+
+$(CURDIR)/$(IBVERBS_LIB_TARBALL):
+	@if [ -e $(DPDK_DOWNLOAD_DIR)/$(IBVERBS_LIB_TARBALL) ] ; \
+		then cp $(DPDK_DOWNLOAD_DIR)/$(IBVERBS_LIB_TARBALL) $(CURDIR) ; \
+		else curl -o $@ -LO $(IBVERBS_LIB_TARBALL_URL) ; \
+	fi
 DPDK_DOWNLOADS = $(CURDIR)/$(DPDK_TARBALL)
 ifeq ($(AESNI),y)
 DPDK_DOWNLOADS += $(CURDIR)/$(AESNIMB_LIB_TARBALL)
 DPDK_DOWNLOADS += $(CURDIR)/$(ISA_L_CRYPTO_LIB_TARBALL)
+DPDK_DOWNLOADS += $(CURDIR)/$(MLX5_LIB_TARBALL)
+DPDK_DOWNLOADS += $(CURDIR)/$(IBVERBS_LIB_TARBALL)
 endif
 
 $(B)/.download.ok: $(DPDK_DOWNLOADS)
@@ -207,6 +247,10 @@ ifeq ($(AESNI),y)
 	@tar --directory $(B) --extract --file $(CURDIR)/$(AESNIMB_LIB_TARBALL)
 	@echo --- extracting $(ISA_L_CRYPTO_LIB_TARBALL) ---
 	@tar --directory $(B) --extract --file $(CURDIR)/$(ISA_L_CRYPTO_LIB_TARBALL)
+	@echo --- extracting $(IBVERBS_LIB_TARBALL) ---
+	@tar --directory $(B) --extract --file $(CURDIR)/$(IBVERBS_LIB_TARBALL)
+	@echo --- extracting $(MLX5_LIB_TARBALL) ---
+	@tar --directory $(B) --extract --file $(CURDIR)/$(MLX5_LIB_TARBALL)
 	@touch $@
 endif
 
@@ -235,7 +279,11 @@ config: $(B)/.config.ok
 
 # Order matters
 ifeq ($(AESNI),y)
+ifeq ($(MLNX_OFED),y)
 BUILD_TARGETS += build-ipsec-mb build-isal-crypto build-dpdk
+else
+BUILD_TARGETS += build-ipsec-mb build-isal-crypto build-ibverbs build-mlx5 build-dpdk
+endif
 else
 BUILD_TARGETS += build-dpdk
 endif
@@ -255,9 +303,40 @@ build-isal-crypto:
 	make -C $(ISA_L_CRYPTO_LIB_SOURCE) -j install
 	cp $(ISA_L_CRYPTO_INSTALL_DIR)/lib/libisal_crypto.a $(I)/lib/
 
+.PHONY: build-mlx5
+build-mlx5:
+	mkdir -p $(I)/lib/
+	cd $(MLX5_LIB_SOURCE) && \
+	  ./configure --prefix=$(MLNX_INSTALL_DIR) \
+	  LDFLAGS='-L$(MLNX_INSTALL_DIR)/lib -Wl,-rpath,$(MLNX_INSTALL_DIR)/lib' \
+	  CFLAGS='-I$(MLX5_INSTALL_DIR)/include -I$(IBVERBS_LIB_SOURCE)/include -fPIC -DPIC -O2'
+	make -C $(MLX5_LIB_SOURCE) -j install
+	@if [ $(RH_OFED) -eq 0 ]; then \
+		cp $(MLNX_INSTALL_DIR)/lib/infiniband/mlx5.a $(I)/lib/libmlx5.a ; \
+		cp $(MLNX_INSTALL_DIR)/lib/infiniband/mlx5.so $(I)/lib/libmlx5.so ; \
+	else \
+		cp $(MLNX_INSTALL_DIR)/lib/libmlx5.a $(I)/lib/ ; \
+		cp $(MLNX_INSTALL_DIR)/lib/libmlx5.so $(I)/lib/ ; \
+	fi
+
+.PHONY: build-ibverbs
+build-ibverbs:
+	mkdir -p $(MLNX_BUILD_DIR)
+	mkdir -p $(MLNX_INSTALL_DIR)
+	mkdir -p $(MLNX_INSTALL_DIR)/lib
+	mkdir -p $(I)/lib/
+	cd $(IBVERBS_LIB_SOURCE) && \
+	  ./configure --prefix=$(MLNX_INSTALL_DIR) --without-resolve-neigh \
+	  LDFLAGS='-L$(MLNX_INSTALL_DIR)/lib -Wl,-rpath,$(MLNX_INSTALL_DIR)/lib' \
+	  CFLAGS='-I$(IBVERBS_INSTALL_DIR)/include -I$(MLNX_INSTALL_DIR)/include -fPIC -DPIC -O2'
+	make -C $(IBVERBS_LIB_SOURCE) -j install
+	cp $(MLNX_INSTALL_DIR)/lib/libibverbs.so $(I)/lib/
+
 .PHONY: build-dpdk
 build-dpdk:
 	@if [ ! -e $(B)/.config.ok ] ; then echo 'Please run "make config" first' && false ; fi
+	@echo "---- open tarball ----"
+	@sudo sed -i 's/libverbs/libverbs,-lmlx5/g' $(DPDK_SOURCE)/mk/rte.app.mk
 	@make $(DPDK_MAKE_ARGS) install
 
 $(B)/.build.ok: $(BUILD_TARGETS)
